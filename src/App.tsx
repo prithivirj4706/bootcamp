@@ -23,7 +23,8 @@ import {
   Compass,
   Users,
   ChevronRight,
-  TrendingUp
+  TrendingUp,
+  Footprints
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -46,6 +47,7 @@ const INITIAL_PERSONNEL: SensorData[] = [
     heartRate: 75,
     spO2: 98,
     fatigueScore: 12,
+    stepCount: 3420,
     coPpm: 5,
     h2sPpm: 2,
     o2Level: 20.9,
@@ -66,6 +68,7 @@ const INITIAL_PERSONNEL: SensorData[] = [
     heartRate: 82,
     spO2: 97,
     fatigueScore: 45,
+    stepCount: 5670,
     coPpm: 12,
     h2sPpm: 1,
     o2Level: 20.5,
@@ -86,6 +89,7 @@ const INITIAL_PERSONNEL: SensorData[] = [
     heartRate: 110,
     spO2: 94,
     fatigueScore: 68,
+    stepCount: 7890,
     coPpm: 28,
     h2sPpm: 8,
     o2Level: 19.8,
@@ -182,28 +186,47 @@ export default function App() {
 
   // Real sensor WebSocket
 useEffect(() => {
-  const ws = new WebSocket(import.meta.env.VITE_WS_URL || 'ws://localhost:3002');
+  const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:3002';
+  
+  let ws: WebSocket | null = new WebSocket(wsUrl);
 
   ws.onopen = () => {
     addLog('UPLINK: ASTRA-01 hardware sensor connected', 'success');
   };
 
   ws.onmessage = (event) => {
-    const { co_ppm, status } = JSON.parse(event.data);
-    setPersonnel(prev => prev.map(p => {
-      if (p.id !== 'ASTRA-01') return p;
-      return { ...p, coPpm: co_ppm };
-    }));
-    if (status === 'DANGER') {
-      addLog(`GAS [ASTRA-01]: LIVE CO reading ${co_ppm} PPM — HARDWARE ALERT`, 'alert');
+    try {
+      const data = JSON.parse(event.data);
+      setPersonnel(prev => prev.map(p => {
+        if (p.id !== 'ASTRA-01') return p;
+        return { 
+          ...p, 
+          coPpm: data.co_ppm ?? p.coPpm,
+          stepCount: data.step_count ?? p.stepCount
+        };
+      }));
+      if (data.status === 'DANGER') {
+        addLog(`GAS [ASTRA-01]: LIVE CO reading ${data.co_ppm} PPM — HARDWARE ALERT`, 'alert');
+      }
+    } catch (e) {
+      console.error('Error parsing WebSocket data:', e);
     }
   };
 
   ws.onclose = () => {
     addLog('UPLINK: ASTRA-01 hardware sensor disconnected', 'info');
+    ws = null;
   };
 
-  return () => ws.close();
+  ws.onerror = (error) => {
+    console.error('WebSocket error:', error);
+  };
+
+  return () => {
+    if (ws) {
+      ws.close();
+    }
+  };
 }, [addLog]);
 
   useEffect(() => {
@@ -392,6 +415,9 @@ useEffect(() => {
               </motion.div>
               <motion.div variants={itemVariants}>
                 <TacticalCard title="Helmet G-Force" icon={ShieldAlert} value={activeWorker.impactG.toFixed(1)} unit="G" isDanger={isDanger.impact} />
+              </motion.div>
+              <motion.div variants={itemVariants}>
+                <TacticalCard title="Step Count" icon={Footprints} value={activeWorker.stepCount.toLocaleString()} unit="steps" isDanger={false} />
               </motion.div>
             </div>
 

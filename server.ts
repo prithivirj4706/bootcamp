@@ -1,49 +1,91 @@
 import express from 'express';
 import cors from 'cors';
-import { WebSocketServer, WebSocket } from 'ws';
-import dotenv from 'dotenv';
-
-dotenv.config();
-
-const HTTP_PORT = parseInt(process.env.SERVER_PORT || '3001');
-const WS_PORT = parseInt(process.env.WS_PORT || '3002');
+import { WebSocketServer } from 'ws';
+import { createServer } from 'http';
+import { SerialPort } from 'serialport';
+import { ReadlineParser } from '@serialport/parser-readline';
 
 const app = express();
 app.use(cors());
-app.use(express.json());
 
-const wss = new WebSocketServer({ port: WS_PORT });
+const server = createServer(app);
+const wss = new WebSocketServer({ server });
 
 let latestData = {
   co_ppm: 0,
+  step_count: 0,
+  temperature: 26.2,
+  impactG: 1.0,
   status: 'SAFE',
-  timestamp: ''
+  timestamp: new Date().toISOString()
 };
 
-function broadcast(data: object) {
+function broadcast(data: any) {
+  const message = JSON.stringify(data);
   wss.clients.forEach(client => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(JSON.stringify(data));
+    if (client.readyState === 1) { // WebSocket.OPEN
+      client.send(message);
     }
   });
 }
 
-app.post('/api/sensor', (req, res) => {
-  const { co_ppm } = req.body;
-  latestData = {
-    co_ppm: parseFloat(parseFloat(co_ppm).toFixed(1)),
-    status: co_ppm > 35 ? 'DANGER' : 'SAFE',
-    timestamp: new Date().toISOString()
-  };
-  broadcast(latestData);
-  res.json({ received: true });
+wss.on('connection', (ws) => {
+  console.log('Client connected');
+  ws.send(JSON.stringify(latestData));
 });
 
-app.get('/api/status', (req, res) => {
-  res.json({ running: true, latest: latestData });
+// --- ADD THIS TO BRIDGE YOUR ARDUINO ---
+const arduinoPort = new SerialPort({ 
+  path: '/dev/cu.usbserial-A5069RR4', // Use your Mac's port here
+  baudRate: 9600,
+  autoOpen: false // Don't open automatically so we can catch errors
 });
 
-app.listen(HTTP_PORT, () => {
-  console.log(`HTTP server → http://localhost:${HTTP_PORT}`);
-  console.log(`WebSocket server → ws://localhost:${WS_PORT}`);
+arduinoPort.open(function (err) {
+  if (err) {
+    console.error('\n🔴 Serial Port Error:', err.message);
+    console.error('💡 HINT: Is your Arduino IDE Serial Monitor open? If so, close it and restart the server!\n');
+  } else {
+    console.log('🟢 Serial Port connected successfully!');
+  }
+});
+
+arduinoPort.on('error', function(err) {
+  console.error('Serial Port Error: ', err.message);
+});
+
+const parser = arduinoPort.pipe(new ReadlineParser({ delimiter: '\r\n' }));
+
+parser.on('data', (data: string) => {
+
+  try {
+    const parts = data.split('|').reduce((acc: any, part) => {
+      const [key, val] = part.split(':');
+      if (key && val !== undefined) {
+        acc[key.toLowerCase()] = parseFloat(val);
+      }
+      return acc;
+    }, {});
+
+    // Update your state
+    latestData = {
+      co_ppm: parts.co !== undefined ? parts.co : latestData.co_ppm,
+      step_count: parts.stp !== undefined ? parts.stp : latestData.step_count,
+      temperature: 26.2, // Simulated or from sensor
+      impactG: parts.mov !== undefined ? parts.mov : latestData.impactG,
+      status: (parts.co > 35) ? 'DANGER' : 'SAFE',
+      timestamp: new Date().toISOString()
+    };
+
+    // Push to your App.tsx via WebSocket
+    broadcast(latestData);
+  } catch (err) {
+    console.error("Error parsing Serial data:", err);
+  }
+});
+
+const PORT = process.env.PORT || 3002;
+server.listen(PORT, () => {
+  console.log(`Server is running on http://localhost:${PORT}`);
+  console.log(`WebSocket is listening on ws://localhost:${PORT}`);
 });

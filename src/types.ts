@@ -5,6 +5,7 @@ export interface SensorData {
   heartRate: number;
   spO2: number;
   fatigueScore: number;
+  stepCount: number;
   
   // Helmet Data
   coPpm: number;

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 
 export interface SensorData {
   co_ppm: number;
+  step_count: number;
   status: 'SAFE' | 'DANGER';
   timestamp: string;
 }
@@ -9,6 +10,7 @@ export interface SensorData {
 export function useSensorData() {
   const [data, setData] = useState<SensorData>({
     co_ppm: 0,
+    step_count: 0,
     status: 'SAFE',
     timestamp: ''
   });
