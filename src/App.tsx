@@ -154,7 +154,7 @@ export default function App() {
           heartRate: drift(p.heartRate, MOCK_RANGES.BPM, 6),
           spO2: drift(p.spO2, MOCK_RANGES.SPO2, 0.3, 0.01),
           fatigueScore: Math.min(MOCK_RANGES.FATIGUE.max, p.fatigueScore + (Math.random() > 0.96 ? 1 : (Math.random() > 0.99 ? 5 : 0))),
-          coPpm: drift(p.coPpm, MOCK_RANGES.CO, 3, 0.05),
+          coPpm: p.id === 'ASTRA-01' ? p.coPpm : drift(p.coPpm, MOCK_RANGES.CO, 3, 0.05),
           h2sPpm: drift(p.h2sPpm, MOCK_RANGES.H2S, 1.5, 0.03),
           o2Level: drift(p.o2Level, MOCK_RANGES.O2, 0.15, 0.01),
           ambientTemp: drift(p.ambientTemp, MOCK_RANGES.TEMP, 0.8),
@@ -179,6 +179,32 @@ export default function App() {
       })
     );
   }, [addLog]);
+
+  // Real sensor WebSocket
+useEffect(() => {
+  const ws = new WebSocket(import.meta.env.VITE_WS_URL || 'ws://localhost:3002');
+
+  ws.onopen = () => {
+    addLog('UPLINK: ASTRA-01 hardware sensor connected', 'success');
+  };
+
+  ws.onmessage = (event) => {
+    const { co_ppm, status } = JSON.parse(event.data);
+    setPersonnel(prev => prev.map(p => {
+      if (p.id !== 'ASTRA-01') return p;
+      return { ...p, coPpm: co_ppm };
+    }));
+    if (status === 'DANGER') {
+      addLog(`GAS [ASTRA-01]: LIVE CO reading ${co_ppm} PPM — HARDWARE ALERT`, 'alert');
+    }
+  };
+
+  ws.onclose = () => {
+    addLog('UPLINK: ASTRA-01 hardware sensor disconnected', 'info');
+  };
+
+  return () => ws.close();
+}, [addLog]);
 
   useEffect(() => {
     const interval = setInterval(simulateData, 1200);
